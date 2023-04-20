@@ -27,8 +27,10 @@ from prefetch_generator import BackgroundGenerator
 from utils import Bar, Logger, AverageMeter, accuracy, mkdir_p, savefig
 from utils.binarylib import AdaBin_Conv2d
 
-from nets.resnet18 import resnet18_1w1a
+from nets.resnet18 import *
 from nets.resnet34 import resnet34_1w1a
+
+import wandb
 
 class DataLoaderX(torch.utils.data.DataLoader):
     def __iter__(self):
@@ -76,6 +78,9 @@ parser.add_argument('--pretrained', default='', type=str, metavar='PATH',
 parser.add_argument('--gpu-id', default='0', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 
+parser.add_argument('--duplicates', default=1, type=int,
+                    help='number of times to duplicate the dataset')
+
 args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
 
@@ -120,7 +125,7 @@ def main():
             transforms.ToTensor(),
             normalize,
         ])),
-        batch_size=args.train_batch, shuffle=True,
+        batch_size=args.train_batch//args.duplicates , shuffle=True,
         num_workers=args.workers, pin_memory=False)
 
     val_loader = DataLoaderX(
@@ -137,6 +142,9 @@ def main():
     criterion = nn.CrossEntropyLoss().cuda()
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min = 0, last_epoch=-1)
+
+    wandb.init(project="binary-imagenet", entity="dl-projects", name=args.arch, config=state)
+    wandb.watch(model)
 
     # Resume
     title = 'ImageNet-' + args.arch
@@ -165,7 +173,7 @@ def main():
 
     if args.evaluate:
         print('\nEvaluation only')
-        test_loss, test_acc = test(val_loader, model, criterion, start_epoch, use_cuda)
+        test_loss, test_acc = test(val_loader, model, criterion, start_epoch, use_cuda, optimizer)
         print(' Test Loss:  %.8f, Test Acc:  %.2f' % (test_loss, test_acc))
         return
     
@@ -195,8 +203,9 @@ def main():
         print('\nEpoch: [%02d|%02d] LR: %.5f' % (epoch + 1, args.epochs, optimizer.param_groups[0]['lr']))
         print(f"layer : {layer_cnt}, k = {k.cpu().detach().numpy()[0]:.5f}, t = {t.cpu().detach().numpy()[0]:.5f}") 
 
-        train_loss, train_acc = train(train_loader, model, criterion, optimizer, epoch, use_cuda)
-        test_loss, test_acc = test(val_loader, model, criterion, epoch, use_cuda)
+
+        train_loss, train_acc = train(train_loader, model, criterion, optimizer, epoch, use_cuda, duplicates = args.duplicates)
+        test_loss, test_acc = test(val_loader, model, criterion, epoch, use_cuda, optimizer)
         lr_scheduler.step()
         
         # append logger file
@@ -220,7 +229,7 @@ def main():
     print('Best acc:')
     print(best_acc)
 
-def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
+def train(train_loader, model, criterion, optimizer, epoch, use_cuda, duplicates):
     # switch to train mode
     model.train()
 
@@ -238,6 +247,10 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
 
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
+
+        inputs = inputs.repeat(duplicates, 1, 1, 1)
+        targets = targets.repeat(duplicates)
+
         inputs, targets = torch.autograd.Variable(inputs), torch.autograd.Variable(targets)
 
         # compute output
@@ -272,10 +285,13 @@ def train(train_loader, model, criterion, optimizer, epoch, use_cuda):
                     top5=top5.avg,
                     )
         bar.next()
+
+    wandb.log({"train_loss": losses.avg, "train_acc": top1.avg, "top5": top5.avg}, commit=False)
+
     bar.finish()
     return (losses.avg, top1.avg)
 
-def test(val_loader, model, criterion, epoch, use_cuda):
+def test(val_loader, model, criterion, epoch, use_cuda, optimizer):
     global best_acc
 
     batch_time = AverageMeter()
@@ -323,6 +339,8 @@ def test(val_loader, model, criterion, epoch, use_cuda):
                     top5=top5.avg,
                     )
         bar.next()
+
+    wandb.log({"test_loss": losses.avg, "test_acc": top1.avg, "epoch": epoch, "test_top5": top5.avg, "lr": optimizer.param_groups[0]['lr']})
         
     bar.finish()
     return (losses.avg, top1.avg)

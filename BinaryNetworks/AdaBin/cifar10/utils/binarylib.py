@@ -7,7 +7,7 @@ from torch.autograd import Function
 
 class BinaryQuantize(Function):
     '''
-        binary quantize function, from IR-Net
+        binary quantize function
         (https://github.com/htqin/IR-Net/blob/master/CIFAR-10/ResNet20/1w1a/modules/binaryfunction.py)
     ''' 
     @staticmethod
@@ -42,16 +42,19 @@ class BinaryActivation(nn.Module):
     '''
         learnable distance and center for activation
     '''
-    def __init__(self):
+    def __init__(self, noise = 0.0):
         super(BinaryActivation, self).__init__() 
         self.alpha_a = nn.Parameter(torch.tensor(1.0))
         self.beta_a = nn.Parameter(torch.tensor(0.0))
+        self.noise = noise
     
     def gradient_approx(self, x):
         '''
-            gradient approximation
+            from Bi-Real Net
             (https://github.com/liuzechun/Bi-Real-net/blob/master/pytorch_implementation/BiReal18_34/birealnet.py)
         '''
+
+        x = x + self.noise * torch.randn_like(x)
         out_forward = torch.sign(x)
         mask1 = x < -1
         mask2 = x < 0
@@ -83,13 +86,13 @@ class AdaBin_Conv2d(nn.Conv2d):
     '''
         AdaBin Convolution
     '''
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, a_bit=1, w_bit=1):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, a_bit=1, w_bit=1, noise = 0.0):
         super(AdaBin_Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         self.a_bit = a_bit
         self.w_bit = w_bit
         self.k = torch.tensor([10]).float().cpu()
         self.t = torch.tensor([0.1]).float().cpu() 
-        self.binary_a = BinaryActivation()
+        self.binary_a = BinaryActivation(noise = noise)
 
         self.filter_size = self.kernel_size[0]*self.kernel_size[1]*self.in_channels
 

@@ -22,8 +22,10 @@ import torchvision.datasets as datasets
 
 from utils.binarylib import AdaBin_Conv2d
 from utils.utils import *
-from nets.resnet20 import resnet20_1w1a
-from nets.resnet18 import resnet18_1w1a
+from nets.resnet20 import *
+from nets.resnet18 import *
+
+import wandb
 
 parser = argparse.ArgumentParser(description='Propert ResNets for CIFAR10 in pytorch')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
@@ -66,6 +68,10 @@ parser.add_argument('--save-every', dest='save_every',
                     help='Saves checkpoints at every specified number of epochs',
                     type=int, default=1)
 
+
+parser.add_argument('--duplicates', default=1, type=int,
+                    help='number of times to duplicate the dataset')
+
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
 
@@ -87,8 +93,14 @@ def main():
 
     logging.info(args)
 
+
+    wandb.init(project="binary-imagenet", entity="dl-projects", name=args.arch, config=args)
+
     model = torch.nn.DataParallel(eval(args.arch)()) 
     model.cuda()
+
+    wandb.watch(model)
+
 
     global best_prec1
     # pretrained
@@ -131,7 +143,7 @@ def main():
             transforms.ToTensor(),
             normalize,
         ]), download=True),
-        batch_size=args.batch_size, shuffle=True,
+        batch_size=args.batch_size//args.duplicates , shuffle=True,
         num_workers=args.workers, pin_memory=False, drop_last=True)
 
     val_loader = torch.utils.data.DataLoader(
@@ -157,7 +169,7 @@ def main():
 
     if args.evaluate:
         log.write("Evaluate : \n")
-        validate(val_loader, model, criterion)
+        validate(val_loader, model, criterion, optimizer, 0)
         return 
     
     print (f"arch : {args.arch} : \n",model)
@@ -195,7 +207,7 @@ def main():
 
         # evaluate on validation set
         # prec1 = 0
-        prec1 = validate(val_loader, model, criterion)
+        prec1 = validate(val_loader, model, criterion, optimizer, epoch)
 
         # remember best prec@1 and save checkpoint
         is_best = prec1 > best_prec1
@@ -217,6 +229,7 @@ def main():
         line = f" *Prec@1 {best_prec1:.3f}"
         log.write("=> "+line+"\n")
         log.flush()
+
         print(line) 
 
 
@@ -238,8 +251,12 @@ def train(train_loader, model, criterion, optimizer, epoch):
         # measure data loading time
         data_time.update(time.time() - end)
 
+
         # target = target.cuda(async=True)
         target = target.cuda()
+        input = input.repeat(args.duplicates, 1, 1, 1)
+        target = target.repeat(args.duplicates)
+
         input_var = torch.autograd.Variable(input).cuda()
         target_var = torch.autograd.Variable(target)
         if args.half:
@@ -277,7 +294,10 @@ def train(train_loader, model, criterion, optimizer, epoch):
             log.flush()
             print(line)
 
-def validate(val_loader, model, criterion):
+        wandb.log({"train_loss": losses.avg, "train_acc": top1.avg}, commit=False)
+
+
+def validate(val_loader, model, criterion, optimizer=None, epoch=None):
     """
     Run evaluation
     """
@@ -329,6 +349,9 @@ def validate(val_loader, model, criterion):
     log.write("=> "+line+"\n")
     log.flush()
     print(line) 
+
+    wandb.log({"test_loss": losses.avg, "test_acc": top1.avg, "epoch": epoch , "lr": optimizer.param_groups[0]['lr']})
+
 
     return top1.avg
 

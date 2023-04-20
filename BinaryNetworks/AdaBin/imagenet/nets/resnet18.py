@@ -6,18 +6,19 @@ This script was started from an early version of the PyTorch ImageNet example
 """
 import math
 import torch.nn as nn
-from utils.binarylib import AdaBin_Conv2d, Maxout
+from utils.binarylib import Maxout
+from utils.binarylib import AdaBin_Conv2d
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None , binary_act_noise = 0.0):
         super(BasicBlock, self).__init__()
-        self.conv1 = AdaBin_Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv1 = AdaBin_Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False, noise = binary_act_noise)
         self.bn1 = nn.BatchNorm2d(planes)
         self.nonlinear1 = Maxout(planes)
 
-        self.conv2 = AdaBin_Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = AdaBin_Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False, noise = binary_act_noise)
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample = downsample
         self.nonlinear2 = Maxout(planes)
@@ -51,7 +52,8 @@ class ResNet(nn.Module):
                  bn_group_size=1,
                  bn_group=None,
                  bn_sync_stats=False,
-                 use_sync_bn=True):
+                 use_sync_bn=True,
+                 binary_act_noise = 0.0):
 
         global BN, bypass_bn_weight_list
 
@@ -82,10 +84,10 @@ class ResNet(nn.Module):
         self.nonlinear1 = Maxout(64)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.layer1 = self._make_layer(block, 64, layers[0], binary_act_noise = binary_act_noise)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, binary_act_noise = binary_act_noise)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, binary_act_noise = binary_act_noise)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, binary_act_noise = binary_act_noise)
 
         self.avgpool = nn.AvgPool2d(7, stride=1)
         self.bn2 = nn.BatchNorm1d(512 * block.expansion)
@@ -107,7 +109,7 @@ class ResNet(nn.Module):
                 param.data.zero_()
             print('bypass {} bn.weight in BottleneckBlocks'.format(len(bypass_bn_weight_list)))
 
-    def _make_layer(self, block, planes, blocks, stride=1, avg_down=False):
+    def _make_layer(self, block, planes, blocks, stride=1, avg_down=False, binary_act_noise = 0.0):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             if self.avg_down:
@@ -125,10 +127,10 @@ class ResNet(nn.Module):
                 )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
+        layers.append(block(self.inplanes, planes, stride, downsample, binary_act_noise = binary_act_noise))
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
+            layers.append(block(self.inplanes, planes, binary_act_noise = binary_act_noise))
 
         return nn.Sequential(*layers)
 
@@ -156,6 +158,18 @@ def resnet18_1w1a(pretrained=False, **kwargs):
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
     model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
+    return model
+
+
+def resnet18_1w1a_sr25(pretrained=False, **kwargs):
+    """Constructs a ResNet-18 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [2, 2, 2, 2], binary_act_noise = 0.25  ,**kwargs)
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet18']))
     return model

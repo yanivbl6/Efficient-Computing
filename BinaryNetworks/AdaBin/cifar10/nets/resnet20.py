@@ -26,13 +26,13 @@ class LambdaLayer(nn.Module):
 class BasicBlock_1w1a(nn.Module):
     expansion = 1
 
-    def __init__(self, in_planes, planes, stride=1, option='A'):
+    def __init__(self, in_planes, planes, stride=1, option='A', binary_act_noise = 0.0):
         super(BasicBlock_1w1a, self).__init__()
-        self.conv1 = AdaBin_Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv1 = AdaBin_Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False, noise = binary_act_noise)
         self.bn1 = nn.BatchNorm2d(planes)
         self.nonlinear1 = Maxout(planes)
 
-        self.conv2 = AdaBin_Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = AdaBin_Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False, noise = binary_act_noise)
         self.bn2 = nn.BatchNorm2d(planes)
         self.nonlinear2 = Maxout(planes)
 
@@ -63,8 +63,12 @@ class BasicBlock_1w1a(nn.Module):
         return out
 
 class ResNet(nn.Module):
-    def __init__(self, block, num_blocks, num_classes=10):
+    def __init__(self, block, num_blocks, num_classes=10, binary_act_noise = 0.0):
         super(ResNet, self).__init__()
+
+        self.binary_act_noise = binary_act_noise
+
+
         self.in_planes = 16
 
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
@@ -83,7 +87,7 @@ class ResNet(nn.Module):
         strides = [stride] + [1]*(num_blocks-1)
         layers = []
         for stride in strides:
-            layers.append(block(self.in_planes, planes, stride))
+            layers.append(block(self.in_planes, planes, stride, binary_act_noise = self.binary_act_noise))
             self.in_planes = planes * block.expansion
 
         return nn.Sequential(*layers)
@@ -101,3 +105,6 @@ class ResNet(nn.Module):
 
 def resnet20_1w1a():
     return ResNet(BasicBlock_1w1a, [3, 3, 3])
+
+def resnet20_1w1a_sr25():
+    return ResNet(BasicBlock_1w1a, [3, 3, 3], binary_act_noise = 0.25)
