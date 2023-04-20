@@ -101,7 +101,6 @@ def main():
 
     wandb.watch(model)
 
-
     global best_prec1
     # pretrained
     if args.pretrained:
@@ -218,13 +217,13 @@ def main():
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'best_prec1': best_prec1,
-            }, is_best, filename=os.path.join(args.save_dir, 'checkpoint.th'))
+            }, is_best,  checkpoint=args.save_dir)
             # }, is_best, filename=os.path.join(args.save_dir, f'checkpoint_{epoch}.th'))
         if is_best:
             save_checkpoint({
                 'state_dict': model.state_dict(),
                 'best_prec1': best_prec1,
-            }, is_best, filename=os.path.join(args.save_dir, 'model.th'))
+            }, is_best,  checkpoint=args.save_dir)
 
         line = f" *Prec@1 {best_prec1:.3f}"
         log.write("=> "+line+"\n")

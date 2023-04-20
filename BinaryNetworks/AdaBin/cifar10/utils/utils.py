@@ -1,12 +1,15 @@
 import math
 import torch
 import torch.nn as nn
+import os
+import shutil
 
-def save_checkpoint(state, filename='checkpoint.pth.tar'):
-    """
-    Save the training model
-    """
-    torch.save(state, filename)
+def save_checkpoint(state, is_best, checkpoint='checkpoint', filename='checkpoint.pth.tar'):
+    filepath = os.path.join(checkpoint, filename)
+    torch.save(state, filepath)
+    if is_best:
+        shutil.copyfile(filepath, os.path.join(checkpoint, 'model_best.pth.tar'))
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
