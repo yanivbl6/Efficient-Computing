@@ -143,7 +143,7 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, args.epochs, eta_min = 0, last_epoch=-1)
 
-    wandb.init(project="binary-imagenet", entity="dl-projects", name=args.arch, config=state)
+    wandb.init(project="binary-imagenet", entity="dl-projects", name= args.checkpoint.split('/')[-1], config=state)
     wandb.watch(model)
 
     # Resume

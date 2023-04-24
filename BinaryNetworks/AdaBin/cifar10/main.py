@@ -75,6 +75,11 @@ parser.add_argument('--duplicates', default=1, type=int,
 parser.add_argument('--misc', default=False, action='store_true', 
                     help='miscellaneous mode')
 
+parser.add_argument('--autoaugment', default=False, action='store_true', 
+                    help='use autoaugment')
+
+parser.add_argument('--cutout', default=False, action='store_true', 
+                    help='use cutout')
 
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
@@ -98,7 +103,7 @@ def main():
     logging.info(args)
 
     if not args.misc:
-        wandb.init(project="binary-imagenet", entity="dl-projects", name=args.arch, config=args)
+        wandb.init(project="binary-imagenet", entity="dl-projects", config=args, name =args.save_dir.split('/')[-1])
 
 
     model = torch.nn.DataParallel(eval(args.arch)()) 
@@ -148,8 +153,7 @@ def main():
 
     args.input_size = 32
     args.distributed = False
-    args.autoaugment = True
-    args.cutout = True
+
     train_data_defaults = {'datasets_path': args.data , 'name': 'cifar10', 'split': 'train', 'augment': True,
                            'input_size': args.input_size,  'batch_size': args.batch_size // args.duplicates ,  'shuffle': True,
                            'num_workers': args.workers, 'pin_memory': True, 'drop_last': True,
@@ -262,6 +266,21 @@ def main():
         print(line) 
 
 
+def _flatten_duplicates(inputs, target, batch_first=True, expand_target=True):
+    duplicates = inputs.size(1)
+    if not batch_first:
+        inputs = inputs.transpose(0, 1)
+    inputs = inputs.flatten(0, 1)
+
+    if expand_target:
+        if batch_first:
+            target = target.view(-1, 1).expand(-1, duplicates)
+        else:
+            target = target.view(1, -1).expand(duplicates, -1)
+        target = target.flatten(0, 1)
+    return inputs, target
+
+
 def train(train_loader, model, criterion, optimizer, epoch):
     """
         Run one train epoch
@@ -281,10 +300,10 @@ def train(train_loader, model, criterion, optimizer, epoch):
         data_time.update(time.time() - end)
 
 
-        # target = target.cuda(async=True)
+        target = target.cuda(non_blocking=True)
 
-        input = input.reshape(-1, 3, 32, 32)
-        target = target.repeat(args.duplicates).cuda()
+        input, target = _flatten_duplicates(input, target)
+
 
         # input = input.repeat(args.duplicates, 1, 1, 1)
         # target = target.repeat(args.duplicates)

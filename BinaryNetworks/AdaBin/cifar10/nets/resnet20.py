@@ -10,6 +10,8 @@ import torch.nn.functional as F
 import torch.nn.init as init
 
 from utils.binarylib import AdaBin_Conv2d, Maxout
+##from torch.nn import Conv2d as AdaBin_Conv2d
+##from torch.nn import ReLU as Maxout
 
 def _weights_init(m):
     if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
