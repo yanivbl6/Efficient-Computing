@@ -54,7 +54,7 @@ class BinaryActivation(nn.Module):
             (https://github.com/liuzechun/Bi-Real-net/blob/master/pytorch_implementation/BiReal18_34/birealnet.py)
         '''
 
-        x = x + self.noise * torch.randn_like(x)
+        x = x + self.noise * (torch.rand_like(x)-0.5)
         out_forward = torch.sign(x)
         mask1 = x < -1
         mask2 = x < 0

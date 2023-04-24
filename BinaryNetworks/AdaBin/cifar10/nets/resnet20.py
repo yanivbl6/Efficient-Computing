@@ -108,3 +108,6 @@ def resnet20_1w1a():
 
 def resnet20_1w1a_sr25():
     return ResNet(BasicBlock_1w1a, [3, 3, 3], binary_act_noise = 0.25)
+
+def resnet20_1w1a_sr5():
+    return ResNet(BasicBlock_1w1a, [3, 3, 3], binary_act_noise = 0.5)

@@ -30,7 +30,7 @@ import wandb
 parser = argparse.ArgumentParser(description='Propert ResNets for CIFAR10 in pytorch')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet20',
                     help='model architecture')
-parser.add_argument('--data', '-d', default='/opt/data/private/dataset/',
+parser.add_argument('--data', '-d', default='~/data/cifar10', type=str, metavar='PATH',
                     help='cifar10 dataset')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
@@ -72,6 +72,10 @@ parser.add_argument('--save-every', dest='save_every',
 parser.add_argument('--duplicates', default=1, type=int,
                     help='number of times to duplicate the dataset')
 
+parser.add_argument('--misc', default=False, action='store_true', 
+                    help='miscellaneous mode')
+
+
 args = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
 
@@ -93,13 +97,15 @@ def main():
 
     logging.info(args)
 
+    if not args.misc:
+        wandb.init(project="binary-imagenet", entity="dl-projects", name=args.arch, config=args)
 
-    wandb.init(project="binary-imagenet", entity="dl-projects", name=args.arch, config=args)
 
     model = torch.nn.DataParallel(eval(args.arch)()) 
     model.cuda()
 
-    wandb.watch(model)
+    if wandb.run is not None:
+        wandb.watch(model)
 
     global best_prec1
     # pretrained
@@ -135,15 +141,39 @@ def main():
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
-    train_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR10(root=args.data, train=True, transform=transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, 4), 
-            transforms.ToTensor(),
-            normalize,
-        ]), download=True),
-        batch_size=args.batch_size//args.duplicates , shuffle=True,
-        num_workers=args.workers, pin_memory=False, drop_last=True)
+
+
+    from data import DataRegime, SampledDataRegime
+
+
+    args.input_size = 32
+    args.distributed = False
+    args.autoaugment = True
+    args.cutout = True
+    train_data_defaults = {'datasets_path': args.data , 'name': 'cifar10', 'split': 'train', 'augment': True,
+                           'input_size': args.input_size,  'batch_size': args.batch_size // args.duplicates ,  'shuffle': True,
+                           'num_workers': args.workers, 'pin_memory': True, 'drop_last': True,
+                           'distributed': args.distributed, 'duplicates': args.duplicates, 'autoaugment': args.autoaugment,
+                           'cutout': {'holes': 1, 'length': 16} if args.cutout else None, 'transform_name' : 'cifar'}
+
+    train_data = DataRegime(None, defaults=train_data_defaults)
+
+    ##train_data.setting['transform'] = 'cifar'
+
+    ##train_loader = train_data.get_loader(override_settings = {'transform': 'cifar'})
+    train_loader = train_data.get_loader()
+
+
+
+    # train_loader = torch.utils.data.DataLoader(
+    #     datasets.CIFAR10(root=args.data, train=True, transform=transforms.Compose([
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.RandomCrop(32, 4), 
+    #         transforms.ToTensor(),
+    #         normalize,
+    #     ]), download=True),
+    #     batch_size=args.batch_size//args.duplicates , shuffle=True,
+    #     num_workers=args.workers, pin_memory=False, drop_last=True)
 
     val_loader = torch.utils.data.DataLoader(
         datasets.CIFAR10(root=args.data, train=False, transform=transforms.Compose([
@@ -252,12 +282,15 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
 
         # target = target.cuda(async=True)
-        target = target.cuda()
-        input = input.repeat(args.duplicates, 1, 1, 1)
-        target = target.repeat(args.duplicates)
 
+        input = input.reshape(-1, 3, 32, 32)
+        target = target.repeat(args.duplicates).cuda()
+
+        # input = input.repeat(args.duplicates, 1, 1, 1)
+        # target = target.repeat(args.duplicates)
         input_var = torch.autograd.Variable(input).cuda()
         target_var = torch.autograd.Variable(target)
+
         if args.half:
             input_var = input_var.half()
 
@@ -293,7 +326,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
             log.flush()
             print(line)
 
-        wandb.log({"train_loss": losses.avg, "train_acc": top1.avg}, commit=False)
+        if wandb.run is not None:
+            wandb.log({"train_loss": losses.avg, "train_acc": top1.avg}, commit=False)
 
 
 def validate(val_loader, model, criterion, optimizer=None, epoch=None):
@@ -349,7 +383,8 @@ def validate(val_loader, model, criterion, optimizer=None, epoch=None):
     log.flush()
     print(line) 
 
-    wandb.log({"test_loss": losses.avg, "test_acc": top1.avg, "epoch": epoch , "lr": optimizer.param_groups[0]['lr']})
+    if wandb.run is not None:
+        wandb.log({"test_loss": losses.avg, "test_acc": top1.avg, "epoch": epoch , "lr": optimizer.param_groups[0]['lr']})
 
 
     return top1.avg
